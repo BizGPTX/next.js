@@ -1473,6 +1473,7 @@ function runTests({ dev }) {
          "rsc": {
            "contentTypeHeader": "text/x-component",
            "didPostponeHeader": "x-nextjs-postponed",
+           "dynamicRSCPrerender": false,
            "header": "rsc",
            "prefetchHeader": "next-router-prefetch",
            "prefetchSegmentDirSuffix": ".segments",
