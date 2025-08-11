@@ -782,5 +782,6 @@
   "781": "No LRU node to remove",
   "782": "Failed to find the root directory of the project. This is a bug in Next.js.",
   "783": "expected a result to be returned",
-  "784": "expected a page response, got %s"
+  "784": "expected a page response, got %s",
+  "785": "`experimental.rdcForNavigations` is enabled, but `experimental.ppr` is not."
 }

@@ -227,7 +227,8 @@ function warnCustomizedOption(
 function assignDefaults(
   dir: string,
   userConfig: NextConfig & { configFileName: string },
-  silent: boolean
+  silent: boolean,
+  configuredExperimentalFeatures: ConfiguredExperimentalFeature[]
 ): NextConfigComplete {
   const configFileName = userConfig.configFileName
   if (typeof userConfig.exportTrailingSlash !== 'undefined') {
@@ -1171,6 +1172,46 @@ function assignDefaults(
     }
 
     result.experimental.ppr = true
+
+    if (
+      configuredExperimentalFeatures &&
+      // If we've already noted that the `process.env.__NEXT_EXPERIMENTAL_CACHE_COMPONENTS`
+      // has enabled the feature, we don't need to note it again.
+      process.env.__NEXT_EXPERIMENTAL_CACHE_COMPONENTS !== 'true' &&
+      process.env.__NEXT_EXPERIMENTAL_PPR !== 'true'
+    ) {
+      addConfiguredExperimentalFeature(
+        configuredExperimentalFeatures,
+        'ppr',
+        true,
+        'enabled by `experimental.cacheComponents`'
+      )
+    }
+  }
+
+  // If ppr is enabled and the user hasn't configured rdcForNavigations, we
+  // enable it by default.
+  if (
+    result.experimental.ppr &&
+    userConfig.experimental?.rdcForNavigations === undefined
+  ) {
+    result.experimental.rdcForNavigations = true
+
+    if (configuredExperimentalFeatures) {
+      addConfiguredExperimentalFeature(
+        configuredExperimentalFeatures,
+        'rdcForNavigations',
+        true,
+        'enabled by `experimental.ppr`'
+      )
+    }
+  }
+
+  // If rdcForNavigations is enabled, but ppr is not, we throw an error.
+  if (result.experimental.rdcForNavigations && !result.experimental.ppr) {
+    throw new Error(
+      '`experimental.rdcForNavigations` is enabled, but `experimental.ppr` is not.'
+    )
   }
 
   return result as NextConfigComplete
@@ -1336,7 +1377,8 @@ export default async function loadConfig(
           configFileName,
           ...customConfig,
         },
-        silent
+        silent,
+        configuredExperimentalFeatures
       ) as NextConfigComplete,
       phase,
       silent
@@ -1542,7 +1584,8 @@ export default async function loadConfig(
         configFileName,
         ...userConfig,
       },
-      silent
+      silent,
+      configuredExperimentalFeatures
     ) as NextConfigComplete
 
     const finalConfig = await applyModifyConfig(completeConfig, phase, silent)
@@ -1595,7 +1638,8 @@ export default async function loadConfig(
   const completeConfig = assignDefaults(
     dir,
     { ...clonedDefaultConfig, configFileName },
-    silent
+    silent,
+    configuredExperimentalFeatures
   ) as NextConfigComplete
 
   setHttpClientAndAgentOptions(completeConfig)
@@ -1764,6 +1808,44 @@ function enforceExperimentalFeatures(
         'cacheComponents',
         true,
         'enabled by `__NEXT_EXPERIMENTAL_CACHE_COMPONENTS`'
+      )
+    }
+  }
+
+  // TODO: Remove this once we've made RDC for Navigations the default for PPR.
+  if (
+    process.env.__NEXT_EXPERIMENTAL_CACHE_COMPONENTS === 'true' &&
+    // We do respect an explicit value in the user config.
+    (config.experimental.rdcForNavigations === undefined ||
+      (isDefaultConfig && !config.experimental.rdcForNavigations))
+  ) {
+    config.experimental.rdcForNavigations = true
+
+    if (configuredExperimentalFeatures) {
+      addConfiguredExperimentalFeature(
+        configuredExperimentalFeatures,
+        'rdcForNavigations',
+        true,
+        'enabled by `__NEXT_EXPERIMENTAL_CACHE_COMPONENTS`'
+      )
+    }
+  }
+
+  // TODO: Remove this once we've made RDC for Navigations the default for PPR.
+  if (
+    process.env.__NEXT_EXPERIMENTAL_PPR === 'true' &&
+    // We do respect an explicit value in the user config.
+    (config.experimental.rdcForNavigations === undefined ||
+      (isDefaultConfig && !config.experimental.rdcForNavigations))
+  ) {
+    config.experimental.rdcForNavigations = true
+
+    if (configuredExperimentalFeatures) {
+      addConfiguredExperimentalFeature(
+        configuredExperimentalFeatures,
+        'rdcForNavigations',
+        true,
+        'enabled by `__NEXT_EXPERIMENTAL_PPR`'
       )
     }
   }
