@@ -67,6 +67,15 @@ impl PageSegment {
             bail!("slashes are not allowed in segments");
         }
 
+        // Handle our intercept routes specifically, if we don't, HMR doesn't pick them up correctly
+        if let Some(s) = segment
+            .strip_prefix("(...)")
+            .or_else(|| segment.strip_prefix("(..)"))
+            .or_else(|| segment.strip_prefix("(.)"))
+        {
+            return Ok(PageSegment::Static(s.into()));
+        }
+
         if let Some(s) = segment.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
             return Ok(PageSegment::Group(s.into()));
         }
