@@ -7,17 +7,34 @@ export interface NextJsLoaderContext extends webpack.LoaderContext<{}> {
 }
 
 export interface NextBabelLoaderBaseOptions {
-  isServer: boolean
-  distDir: string
-  pagesDir: string
   cwd: string
-  srcDir: string
-  caller: any
-  development: boolean
 
-  // Custom plugins to be added to the generated babel options.
+  /**
+   * Should we read the user-provided custom babel config? Used in both `transformMode`s.
+   */
+  configFile?: string
+
+  /**
+   * Custom plugins to be added to the generated babel options.
+   */
   reactCompilerPlugins?: Array<any>
+
+  /**
+   * Paths that the loader should not apply the react-compiler to.
+   */
   reactCompilerExclude?: (excludePath: string) => boolean
+
+  overrides?: any
+
+  /**
+   * Extra fields to pass to presets/plugins via the Babel 'caller' API.
+   */
+  caller?: any
+
+  /**
+   * Advanced: Can override webpack's sourcemap behavior (see `NextJsLoaderContext["sourceMap"]`).
+   */
+  sourceMaps?: boolean | 'inline' | 'both' | null | undefined
 }
 
 /**
@@ -28,17 +45,20 @@ export interface NextBabelLoaderBaseOptions {
  */
 export type NextBabelLoaderOptionDefaultPresets = NextBabelLoaderBaseOptions & {
   transformMode: 'default'
+
+  isServer: boolean
+  distDir: string
+  pagesDir: string | undefined
+  srcDir: string
+  development: boolean
   hasJsxRuntime: boolean
   hasReactRefresh: boolean
-  sourceMaps?: boolean | 'inline' | 'both' | null | undefined
-  overrides: any
-  configFile: string | undefined
 }
 
 /**
  * Options to create babel loader for 'standalone' transformations.
  *
- * This'll create a babel loader does not enable any of the default presets or plugins,
+ * This'll create a babel loader does not enable any of the default next.js presets or plugins,
  * only the ones specified in the options where swc loader is enabled but need to inject
  * a babel specific plugins like react compiler.
  */

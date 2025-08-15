@@ -1,13 +1,9 @@
-use anyhow::Result;
-use turbo_rcstr::rcstr;
+use anyhow::{Context, Result};
+use turbo_rcstr::{RcStr, rcstr};
 use turbo_tasks::{ResolvedVc, Vc};
-use turbo_tasks_fs::{self, FileSystemEntryType, FileSystemPath};
+use turbo_tasks_fs::{self, FileSystemEntryType, FileSystemPath, to_sys_path};
 use turbopack::module_options::{LoaderRuleItem, OptionWebpackRules, WebpackRules};
-use turbopack_core::{
-    issue::{Issue, IssueExt, IssueSeverity, IssueStage, OptionStyledString, StyledString},
-    reference_type::{CommonJsReferenceSubType, ReferenceType},
-    resolve::{node::node_cjs_resolve_options, parse::Request, pattern::Pattern, resolve},
-};
+use turbopack_core::issue::{Issue, IssueSeverity, IssueStage, OptionStyledString, StyledString};
 use turbopack_node::transforms::webpack::WebpackLoaderItem;
 
 const BABEL_CONFIG_FILES: &[&str] = &[
@@ -22,6 +18,25 @@ const BABEL_CONFIG_FILES: &[&str] = &[
     "babel.config.cjs",
 ];
 
+/// The upstream version of babel-loader from NPM. This is what a user would likely use if they
+/// manually configured babel-loader themselves.
+const UPSTREAM_BABEL_LOADER: &str = "babel-loader";
+
+/// The forked version of babel-loader that we should use for automatic configuration. This version
+/// is always available, as it's installed as part of next.js.
+const NEXT_JS_BABEL_LOADER: &str = "next/dist/build/babel/loader";
+
+/// A system path that can be passed to the webpack loader
+async fn to_sys_path_str(path: FileSystemPath) -> Result<String> {
+    let sys_path = to_sys_path(path)
+        .await?
+        .context("path should use a DiskFileSystem")?;
+    Ok(sys_path
+        .to_str()
+        .with_context(|| "{sys_path:?} is not valid utf-8")?
+        .to_owned())
+}
+
 /// If the user has a babel configuration file (see list above) alongside their
 /// `next.config.js` configuration, automatically add `babel-loader` as a
 /// webpack loader for each eligible file type if it doesn't already exist.
@@ -30,97 +45,83 @@ pub async fn maybe_add_babel_loader(
     project_root: FileSystemPath,
     webpack_rules: Option<ResolvedVc<WebpackRules>>,
 ) -> Result<Vc<OptionWebpackRules>> {
-    let has_babel_config = {
-        let mut has_babel_config = false;
-        for &filename in BABEL_CONFIG_FILES {
-            let filetype = *project_root.join(filename)?.get_type().await?;
-            if matches!(filetype, FileSystemEntryType::File) {
-                has_babel_config = true;
-                break;
-            }
-        }
-        has_babel_config
-    };
-
-    if has_babel_config {
-        let mut rules = if let Some(webpack_rules) = webpack_rules {
-            webpack_rules.owned().await?
-        } else {
-            Default::default()
-        };
-        let mut has_emitted_babel_resolve_issue = false;
-        let mut has_changed = false;
-        for pattern in ["*.js", "*.jsx", "*.ts", "*.tsx", "*.cjs", "*.mjs"] {
-            let rule = rules.get_mut(pattern);
-            let has_babel_loader = if let Some(rule) = rule.as_ref() {
-                rule.loaders
-                    .await?
-                    .iter()
-                    .any(|c| c.loader == "babel-loader")
-            } else {
-                false
-            };
-
-            if !has_babel_loader {
-                if !has_emitted_babel_resolve_issue
-                    && !*is_babel_loader_available(project_root.clone()).await?
-                {
-                    BabelIssue {
-                        path: project_root.clone(),
-                        title: StyledString::Text(rcstr!(
-                            "Unable to resolve babel-loader, but a babel config is present"
-                        ))
-                        .resolved_cell(),
-                        description: StyledString::Text(rcstr!(
-                            "Make sure babel-loader is installed via your package manager."
-                        ))
-                        .resolved_cell(),
-                        severity: IssueSeverity::Fatal,
-                    }
-                    .resolved_cell()
-                    .emit();
-
-                    has_emitted_babel_resolve_issue = true;
-                }
-
-                let loader = WebpackLoaderItem {
-                    loader: rcstr!("babel-loader"),
-                    options: Default::default(),
-                };
-                if let Some(rule) = rule {
-                    let mut loaders = rule.loaders.owned().await?;
-                    loaders.push(loader);
-                    rule.loaders = ResolvedVc::cell(loaders);
-                } else {
-                    rules.insert(
-                        pattern.into(),
-                        LoaderRuleItem {
-                            loaders: ResolvedVc::cell(vec![loader]),
-                            rename_as: Some(rcstr!("*")),
-                        },
-                    );
-                }
-                has_changed = true;
-            }
-        }
-
-        if has_changed {
-            return Ok(Vc::cell(Some(ResolvedVc::cell(rules))));
+    let mut babel_config_path = None;
+    for &filename in BABEL_CONFIG_FILES {
+        let path = project_root.join(filename)?;
+        let filetype = *path.get_type().await?;
+        if matches!(filetype, FileSystemEntryType::File) {
+            babel_config_path = Some(path);
+            break;
         }
     }
-    Ok(Vc::cell(webpack_rules))
-}
 
-#[turbo_tasks::function]
-pub async fn is_babel_loader_available(project_path: FileSystemPath) -> Result<Vc<bool>> {
-    let result = resolve(
-        project_path.clone(),
-        ReferenceType::CommonJs(CommonJsReferenceSubType::Undefined),
-        Request::parse(Pattern::Constant(rcstr!("babel-loader/package.json"))),
-        node_cjs_resolve_options(project_path),
+    let Some(babel_config_path) = babel_config_path else {
+        return Ok(Vc::cell(webpack_rules));
+    };
+
+    let mut rules = if let Some(webpack_rules) = webpack_rules {
+        webpack_rules.owned().await?
+    } else {
+        Default::default()
+    };
+
+    // - See `packages/next/src/build/babel/loader/types.d.ts` for all the configuration options.
+    // - See `packages/next/src/build/get-babel-loader-config.ts` for how we use this in webpack.
+    let mut loader_options = serde_json::Map::new();
+
+    // `transformMode: default` (what the webpack implementation does) would run all of the
+    // Next.js-specific transforms as babel transforms. Because we always have to pay the cost
+    // of parsing with SWC after the webpack loader runs, we want to keep running those
+    // transforms using SWC, so use `standalone` instead.
+    loader_options.insert("transformMode".to_owned(), "standalone".into());
+
+    loader_options.insert(
+        "cwd".to_owned(),
+        to_sys_path_str(project_root).await?.into(),
     );
-    let assets = result.primary_sources().await?;
-    Ok(Vc::cell(!assets.is_empty()))
+    loader_options.insert(
+        "configFile".to_owned(),
+        to_sys_path_str(babel_config_path).await?.into(),
+    );
+
+    let mut has_changed = false;
+    for pattern in ["*.js", "*.jsx", "*.ts", "*.tsx", "*.cjs", "*.mjs"] {
+        let rule = rules.get_mut(pattern);
+        let has_babel_loader = if let Some(rule) = rule.as_ref() {
+            rule.loaders
+                .await?
+                .iter()
+                .any(|c| c.loader == UPSTREAM_BABEL_LOADER || c.loader == NEXT_JS_BABEL_LOADER)
+        } else {
+            false
+        };
+
+        if !has_babel_loader {
+            let loader = WebpackLoaderItem {
+                loader: rcstr!(NEXT_JS_BABEL_LOADER),
+                options: loader_options.clone(),
+            };
+            if let Some(rule) = rule {
+                let mut loaders = rule.loaders.owned().await?;
+                loaders.push(loader);
+                rule.loaders = ResolvedVc::cell(loaders);
+            } else {
+                rules.insert(
+                    RcStr::from(pattern),
+                    LoaderRuleItem {
+                        loaders: ResolvedVc::cell(vec![loader]),
+                        rename_as: Some(rcstr!("*")),
+                    },
+                );
+            }
+            has_changed = true;
+        }
+    }
+
+    if has_changed {
+        return Ok(Vc::cell(Some(ResolvedVc::cell(rules))));
+    }
+    Ok(Vc::cell(webpack_rules))
 }
 
 #[turbo_tasks::value]
