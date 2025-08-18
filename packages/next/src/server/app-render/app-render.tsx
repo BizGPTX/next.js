@@ -238,6 +238,7 @@ export type AppRenderContext = {
   appUsingSizeAdjustment: boolean
   flightRouterState?: FlightRouterState
   requestId: string
+  htmlRequestId: string
   pagePath: string
   clientReferenceManifest: DeepReadonly<ClientReferenceManifest>
   assetPrefix: string
@@ -284,6 +285,7 @@ interface ParsedRequestHeaders {
   readonly isRSCRequest: boolean
   readonly nonce: string | undefined
   readonly previouslyRevalidatedTags: string[]
+  readonly htmlRequestId: string | undefined
 }
 
 function parseRequestHeaders(
@@ -328,6 +330,11 @@ function parseRequestHeaders(
     options.previewModeId
   )
 
+  const htmlRequestId =
+    typeof headers[NEXT_REQUEST_ID_HEADER] === 'string'
+      ? headers[NEXT_REQUEST_ID_HEADER]
+      : undefined
+
   return {
     flightRouterState,
     isPrefetchRequest,
@@ -338,6 +345,7 @@ function parseRequestHeaders(
     isDevWarmupRequest,
     nonce,
     previouslyRevalidatedTags,
+    htmlRequestId,
   }
 }
 
@@ -550,17 +558,30 @@ async function generateDynamicFlightRenderResult(
     temporaryReferences?: WeakMap<any, string>
   }
 ): Promise<RenderResult> {
-  const renderOpts = ctx.renderOpts
+  const {
+    clientReferenceManifest,
+    componentMod,
+    htmlRequestId,
+    renderOpts,
+    requestId,
+    workStore,
+  } = ctx
+
+  const {
+    dev = false,
+    onInstrumentationRequestError,
+    sendReactDebugChunk,
+  } = renderOpts
 
   function onFlightDataRenderError(err: DigestedError) {
-    return renderOpts.onInstrumentationRequestError?.(
+    return onInstrumentationRequestError?.(
       err,
       req,
       createErrorContext(ctx, 'react-server-components-payload')
     )
   }
   const onError = createFlightReactServerErrorHandler(
-    !!renderOpts.dev,
+    dev,
     onFlightDataRenderError
   )
 
@@ -578,18 +599,25 @@ async function generateDynamicFlightRenderResult(
   // which contains the subset React.
   const flightReadableStream = workUnitAsyncStorage.run(
     requestStore,
-    ctx.componentMod.renderToReadableStream,
+    componentMod.renderToReadableStream,
     RSCPayload,
-    ctx.clientReferenceManifest.clientModules,
+    clientReferenceManifest.clientModules,
     {
       onError,
       temporaryReferences: options?.temporaryReferences,
       filterStackFrame,
+      debugChannel: {
+        writable: new WritableStream<Uint8Array>({
+          write(chunk) {
+            sendReactDebugChunk?.(chunk, htmlRequestId, requestId)
+          },
+        }),
+      },
     }
   )
 
   return new FlightRenderResult(flightReadableStream, {
-    fetchMetrics: ctx.workStore.fetchMetrics,
+    fetchMetrics: workStore.fetchMetrics,
   })
 }
 
@@ -1605,16 +1633,6 @@ async function renderToHTMLOrFlightImpl(
   query = { ...query }
   stripInternalQueries(query)
 
-  const {
-    flightRouterState,
-    isPrefetchRequest,
-    isRuntimePrefetchRequest,
-    isRSCRequest,
-    isDevWarmupRequest,
-    isHmrRefresh,
-    nonce,
-  } = parsedRequestHeaders
-
   const { isStaticGeneration } = workStore
 
   let requestId: string
@@ -1632,6 +1650,17 @@ async function renderToHTMLOrFlightImpl(
   }
 
   res.setHeader(NEXT_REQUEST_ID_HEADER, requestId)
+
+  const {
+    flightRouterState,
+    isPrefetchRequest,
+    isRuntimePrefetchRequest,
+    isRSCRequest,
+    isDevWarmupRequest,
+    isHmrRefresh,
+    nonce,
+    htmlRequestId = requestId,
+  } = parsedRequestHeaders
 
   /**
    * Dynamic parameters. E.g. when you visit `/dashboard/vercel` which is rendered by `/dashboard/[slug]` the value will be {"slug": "vercel"}.
@@ -1666,6 +1695,7 @@ async function renderToHTMLOrFlightImpl(
     appUsingSizeAdjustment,
     flightRouterState,
     requestId,
+    htmlRequestId,
     pagePath,
     clientReferenceManifest,
     assetPrefix,
@@ -2073,7 +2103,8 @@ async function renderToStream(
   metadata: AppPageRenderResultMetadata,
   devValidatingFallbackParams: FallbackRouteParams | null
 ): Promise<ReadableStream<Uint8Array>> {
-  const { assetPrefix, nonce, pagePath, renderOpts, requestId } = ctx
+  const { assetPrefix, htmlRequestId, nonce, pagePath, renderOpts, requestId } =
+    ctx
 
   const {
     basePath,
@@ -2087,6 +2118,7 @@ async function renderToStream(
     onInstrumentationRequestError,
     page,
     reactMaxHeadersLength,
+    sendReactDebugChunk,
     shouldWaitOnAllReady,
     subresourceIntegrityManifest,
     supportsDynamicResponse,
@@ -2225,7 +2257,7 @@ async function renderToStream(
                 debugChannel: {
                   writable: new WritableStream<Uint8Array>({
                     write(chunk) {
-                      renderOpts.sendReactDebugChunk?.(ctx.requestId, chunk)
+                      sendReactDebugChunk?.(chunk, htmlRequestId, requestId)
                     },
                   }),
                 },
@@ -2302,6 +2334,13 @@ async function renderToStream(
           {
             filterStackFrame,
             onError: serverComponentsErrorHandler,
+            debugChannel: {
+              writable: new WritableStream<Uint8Array>({
+                write(chunk) {
+                  sendReactDebugChunk?.(chunk, htmlRequestId, requestId)
+                },
+              }),
+            },
           }
         )
       )
