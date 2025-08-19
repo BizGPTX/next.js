@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, str::FromStr};
 
 use anyhow::{Context, Result, bail};
 use rustc_hash::FxHashSet;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value as JsonValue;
 use turbo_esregex::EsRegex;
 use turbo_rcstr::{RcStr, rcstr};
@@ -566,53 +566,102 @@ pub struct TurbopackConfig {
     pub module_ids: Option<ModuleIds>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(
+    Serialize, Deserialize, Clone, PartialEq, Eq, Debug, TraceRawVcs, NonLocalValue, OperationValue,
+)]
 pub struct RegexComponents {
     source: RcStr,
     flags: RcStr,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TraceRawVcs, NonLocalValue, OperationValue,
+)]
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum ConfigConditionPath {
     Glob(RcStr),
     Regex(RegexComponents),
 }
 
-impl TryInto<ConditionPath> for ConfigConditionPath {
-    fn try_into(self) -> Result<ConditionPath> {
-        Ok(match self {
+impl TryFrom<ConfigConditionPath> for ConditionPath {
+    type Error = anyhow::Error;
+
+    fn try_from(config: ConfigConditionPath) -> Result<ConditionPath> {
+        Ok(match config {
             ConfigConditionPath::Glob(path) => ConditionPath::Glob(path),
-            ConfigConditionPath::Regex(path) => ConditionPath::Regex(path.try_into()?),
+            ConfigConditionPath::Regex(path) => {
+                ConditionPath::Regex(EsRegex::try_from(path)?.resolved_cell())
+            }
         })
     }
-
-    type Error = anyhow::Error;
 }
 
-impl TryInto<ResolvedVc<EsRegex>> for RegexComponents {
-    fn try_into(self) -> Result<ResolvedVc<EsRegex>> {
-        Ok(EsRegex::new(&self.source, &self.flags)?.resolved_cell())
+impl TryFrom<RegexComponents> for EsRegex {
+    type Error = anyhow::Error;
+
+    fn try_from(components: RegexComponents) -> Result<EsRegex> {
+        EsRegex::new(&components.source, &components.flags)
     }
+}
 
+#[derive(
+    Serialize, Deserialize, Clone, PartialEq, Eq, Debug, TraceRawVcs, NonLocalValue, OperationValue,
+)]
+pub enum ConfigConditionItem {
+    #[serde(rename = "all", alias = "and")]
+    All(Box<[ConfigConditionItem]>),
+    #[serde(rename = "any", alias = "or")]
+    Any(Box<[ConfigConditionItem]>),
+    #[serde(rename = "not")]
+    Not(Box<ConfigConditionItem>),
+    #[serde(
+        untagged,
+        serialize_with = "serialize_rcstr",
+        deserialize_with = "deserialize_rcstr"
+    )]
+    Builtin(RcStr),
+    #[serde(untagged)]
+    Base {
+        path: Option<ConfigConditionPath>,
+        content: Option<RegexComponents>,
+    },
+}
+
+fn serialize_rcstr<S>(field: &RcStr, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    field.serialize(serializer)
+}
+
+fn deserialize_rcstr<'de, D>(deserializer: D) -> Result<RcStr, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    RcStr::deserialize(deserializer)
+}
+
+impl TryFrom<ConfigConditionItem> for ConditionItem {
     type Error = anyhow::Error;
-}
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct ConfigConditionItem {
-    pub path: Option<ConfigConditionPath>,
-    pub content: Option<RegexComponents>,
-}
-
-impl TryInto<ConditionItem> for ConfigConditionItem {
-    fn try_into(self) -> Result<ConditionItem> {
-        Ok(ConditionItem {
-            path: self.path.map(|p| p.try_into()).transpose()?,
-            content: self.content.map(|r| r.try_into()).transpose()?,
+    fn try_from(config: ConfigConditionItem) -> Result<Self> {
+        Ok(match config {
+            ConfigConditionItem::All(conds) => ConditionItem::All(
+                conds
+                    .into_iter()
+                    .map(ConditionItem::try_from)
+                    .collect::<Result<_>>()?,
+            ),
+            ConfigConditionItem::Base { path, content } => ConditionItem::Base {
+                path: path.map(ConditionPath::try_from).transpose()?,
+                content: content
+                    .map(EsRegex::try_from)
+                    .transpose()?
+                    .map(EsRegex::resolved_cell),
+            },
+            _ => todo!(),
         })
     }
-
-    type Error = anyhow::Error;
 }
 
 #[derive(
@@ -623,6 +672,7 @@ pub struct RuleConfigItemOptions {
     pub loaders: Vec<LoaderItem>,
     #[serde(default, alias = "as")]
     pub rename_as: Option<RcStr>,
+    pub condition: Option<ConfigConditionItem>,
 }
 
 #[derive(
@@ -640,8 +690,8 @@ pub enum RuleConfigItemOrShortcut {
 #[serde(rename_all = "camelCase", untagged)]
 pub enum RuleConfigItem {
     Options(RuleConfigItemOptions),
-    Conditional(FxIndexMap<RcStr, RuleConfigItem>),
-    Boolean(bool),
+    LegacyConditional(FxIndexMap<RcStr, RuleConfigItem>),
+    LegacyBoolean(bool),
 }
 
 #[derive(
@@ -1320,13 +1370,16 @@ impl NextConfig {
                 NotFound,
                 Break,
             }
+            // This logic is needed for the `LegacyConditional`/`LegacyBoolean` configuration
+            // syntax. This is technically public syntax, but was never documented and it is
+            // unlikely that anyone is depending on it (outside of some Next.js internals).
             fn find_rule<'a>(
                 rule: &'a RuleConfigItem,
                 active_conditions: &BTreeSet<WebpackLoaderBuiltinCondition>,
             ) -> FindRuleResult<'a> {
                 match rule {
                     RuleConfigItem::Options(rule) => FindRuleResult::Found(rule),
-                    RuleConfigItem::Conditional(map) => {
+                    RuleConfigItem::LegacyConditional(map) => {
                         for (condition, rule) in map.iter() {
                             let condition = WebpackLoaderBuiltinCondition::from_str(condition);
                             if let Ok(condition) = condition
@@ -1346,7 +1399,7 @@ impl NextConfig {
                         }
                         FindRuleResult::NotFound
                     }
-                    RuleConfigItem::Boolean(_) => FindRuleResult::Break,
+                    RuleConfigItem::LegacyBoolean(_) => FindRuleResult::Break,
                 }
             }
             match rule {
@@ -1356,12 +1409,16 @@ impl NextConfig {
                         LoaderRuleItem {
                             loaders: transform_loaders(loaders),
                             rename_as: None,
+                            condition: None,
                         },
                     );
                 }
                 RuleConfigItemOrShortcut::Advanced(rule) => {
-                    if let FindRuleResult::Found(RuleConfigItemOptions { loaders, rename_as }) =
-                        find_rule(rule, &active_conditions)
+                    if let FindRuleResult::Found(RuleConfigItemOptions {
+                        loaders,
+                        rename_as,
+                        condition,
+                    }) = find_rule(rule, &active_conditions)
                     {
                         // If the extension contains a wildcard, and the rename_as does not,
                         // emit an issue to prevent users from encountering duplicate module names.
@@ -1383,6 +1440,12 @@ impl NextConfig {
                             LoaderRuleItem {
                                 loaders: transform_loaders(loaders),
                                 rename_as: rename_as.clone(),
+                                // TODO(bgw): Emit `InvalidLoaderRuleError` if this fails instead of
+                                // using try (?)
+                                condition: condition
+                                    .clone()
+                                    .map(ConditionItem::try_from)
+                                    .transpose()?,
                             },
                         );
                     }
