@@ -367,6 +367,7 @@ export default class NextNodeServer extends BaseServer<
         isAppPath: false,
         isDev: this.isDev,
         sriEnabled: this.sriEnabled,
+        needsManifestsForLegacyReasons: false,
       }).catch(() => {})
     }
 
@@ -377,6 +378,7 @@ export default class NextNodeServer extends BaseServer<
         isAppPath: true,
         isDev: this.isDev,
         sriEnabled: this.sriEnabled,
+        needsManifestsForLegacyReasons: false,
       })
         .then(async ({ ComponentMod }) => {
           // we need to ensure fetch is patched before we require the page,
@@ -894,6 +896,7 @@ export default class NextNodeServer extends BaseServer<
           isAppPath,
           isDev: this.isDev,
           sriEnabled: this.sriEnabled,
+          needsManifestsForLegacyReasons: false,
         })
 
         if (

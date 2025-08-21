@@ -1137,6 +1137,7 @@ export async function isPageStatic({
           isAppPath: pageType === 'app',
           isDev: false,
           sriEnabled,
+          needsManifestsForLegacyReasons: true,
         })
       }
       const Comp = componentsResult.Component as NextComponentType | undefined
@@ -1401,6 +1402,7 @@ export async function hasCustomGetInitialProps({
     isAppPath: false,
     isDev: false,
     sriEnabled,
+    needsManifestsForLegacyReasons: true,
   })
   let mod = components.ComponentMod
 
@@ -1433,6 +1435,7 @@ export async function getDefinedNamedExports({
     isAppPath: false,
     isDev: false,
     sriEnabled,
+    needsManifestsForLegacyReasons: true,
   })
 
   return Object.keys(components.ComponentMod).filter((key) => {
