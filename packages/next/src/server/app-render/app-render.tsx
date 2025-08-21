@@ -203,6 +203,7 @@ import { getDynamicParam } from '../../shared/lib/router/utils/get-dynamic-param
 import type { ExperimentalConfig } from '../config-shared'
 import type { Params } from '../request/params'
 import { createPromiseWithResolvers } from '../../shared/lib/promise-with-resolvers'
+import { collectPrefetchConfigs } from './collect-prefetch-configs'
 
 export type GetDynamicParamFromSegment = (
   // [slug] / [[slug]] / [...slug]
@@ -4674,6 +4675,7 @@ async function collectSegmentData(
     renderOpts.experimental.clientParamParsing,
     fullPageDataBuffer,
     staleTime,
+    await collectPrefetchConfigs(ComponentMod.tree),
     clientReferenceManifest.clientModules as ManifestNode,
     serverConsumerManifest
   )

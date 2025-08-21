@@ -25,6 +25,8 @@ import {
   ROOT_SEGMENT_REQUEST_KEY,
 } from '../../shared/lib/segment-cache/segment-value-encoding'
 import { getDigestForWellKnownError } from './create-error-handler'
+import type { PrefetchConfigTree } from './collect-prefetch-configs'
+import { InvariantError } from '../../shared/lib/invariant-error'
 
 // Contains metadata about the route tree. The client must fetch this before
 // it can fetch any actual segment data.
@@ -49,6 +51,9 @@ export type TreePrefetch = {
   slots: null | {
     [parallelRouteKey: string]: TreePrefetch
   }
+
+  /** Whether this segment should be fetched using a runtime prefetch */
+  runtime: boolean
 
   // Extra fields that only exist so we can reconstruct a FlightRouterState on
   // the client. We may be able to unify TreePrefetch and FlightRouterState
@@ -89,6 +94,7 @@ export async function collectSegmentData(
   isClientParamParsingEnabled: boolean,
   fullPageDataBuffer: Buffer,
   staleTime: number,
+  prefetchConfigTree: PrefetchConfigTree,
   clientModules: ManifestNode,
   serverConsumerManifest: any
 ): Promise<Map<SegmentRequestKey, Buffer>> {
@@ -133,6 +139,7 @@ export async function collectSegmentData(
     <PrefetchTreeData
       isClientParamParsingEnabled={isClientParamParsingEnabled}
       fullPageDataBuffer={fullPageDataBuffer}
+      prefetchConfigTree={prefetchConfigTree}
       serverConsumerManifest={serverConsumerManifest}
       clientModules={clientModules}
       staleTime={staleTime}
@@ -164,6 +171,7 @@ export async function collectSegmentData(
 async function PrefetchTreeData({
   isClientParamParsingEnabled,
   fullPageDataBuffer,
+  prefetchConfigTree,
   serverConsumerManifest,
   clientModules,
   staleTime,
@@ -172,6 +180,7 @@ async function PrefetchTreeData({
 }: {
   isClientParamParsingEnabled: boolean
   fullPageDataBuffer: Buffer
+  prefetchConfigTree: PrefetchConfigTree
   serverConsumerManifest: any
   clientModules: ManifestNode
   staleTime: number
@@ -214,6 +223,7 @@ async function PrefetchTreeData({
     flightRouterState,
     buildId,
     seedData,
+    prefetchConfigTree,
     clientModules,
     ROOT_SEGMENT_REQUEST_KEY,
     segmentTasks
@@ -242,6 +252,7 @@ function collectSegmentDataImpl(
   route: FlightRouterState,
   buildId: string,
   seedData: CacheNodeSeedData | null,
+  prefetchConfigTree: PrefetchConfigTree,
   clientModules: ManifestNode,
   requestKey: SegmentRequestKey,
   segmentTasks: Array<Promise<[string, Buffer]>>
@@ -252,6 +263,7 @@ function collectSegmentDataImpl(
 
   const children = route[1]
   const seedDataChildren = seedData !== null ? seedData[2] : null
+  const prefetchConfigTreeChildren = prefetchConfigTree.slots
   for (const parallelRouteKey in children) {
     const childRoute = children[parallelRouteKey]
     const childSegment = childRoute[0]
@@ -268,6 +280,7 @@ function collectSegmentDataImpl(
       childRoute,
       buildId,
       childSeedData,
+      prefetchConfigTreeChildren[parallelRouteKey],
       clientModules,
       childRequestKey,
       segmentTasks
@@ -296,7 +309,7 @@ function collectSegmentDataImpl(
   }
 
   const segment = route[0]
-  let name
+  let name: string
   let paramType: DynamicParamTypesShort | null = null
   let paramKey: string | null = null
   if (typeof segment === 'string') {
@@ -308,6 +321,12 @@ function collectSegmentDataImpl(
     paramKey = segment[1]
     paramType = segment[2] as DynamicParamTypesShort
   }
+  if (prefetchConfigTree.name !== segment) {
+    throw new InvariantError(
+      `Mismatched segment names between router state: '${segment}' and prefetch config tree: '${prefetchConfigTree.name}'`
+    )
+  }
+  const prefetchConfig = prefetchConfigTree.prefetchConfig
 
   // Metadata about the segment. Sent to the client as part of the
   // tree prefetch.
@@ -319,6 +338,8 @@ function collectSegmentDataImpl(
     // case there's a bug and we need to revert.
     // TODO: Remove once clientParamParsing is enabled everywhere.
     paramKey: isClientParamParsingEnabled ? null : paramKey,
+    // TODO
+    runtime: prefetchConfig === 'runtime',
     slots: slotMetadata,
     isRootLayout: route[4] === true,
   }

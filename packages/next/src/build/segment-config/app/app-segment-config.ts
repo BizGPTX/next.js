@@ -40,6 +40,12 @@ const AppSegmentConfigSchema = z.object({
     .optional(),
 
   /**
+   * How this segment should be prefetched.
+   * (only applicable when `clientSegmentCache` is enabled)
+   */
+  prefetch: z.enum(['static', 'runtime']).optional(),
+
+  /**
    * The preferred region for the page.
    */
   preferredRegion: z.union([z.string(), z.array(z.string())]).optional(),
@@ -126,6 +132,12 @@ export type AppSegmentConfig = {
     | 'force-no-store'
     | 'only-cache'
     | 'only-no-store'
+
+  /**
+   * How this segment should be prefetched.
+   * (only applicable when `clientSegmentCache` is enabled)
+   */
+  prefetch?: 'static' | 'runtime'
 
   /**
    * The preferred region for the page.

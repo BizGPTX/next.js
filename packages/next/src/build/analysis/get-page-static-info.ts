@@ -547,6 +547,12 @@ export async function getAppPageStaticInfo({
     )
   }
 
+  if (!nextConfig.experimental?.clientSegmentCache && 'prefetch' in config) {
+    throw new Error(
+      `Page "${page}" cannot use \`export const prefetch = ...\` without enabling \`experimental.clientSegmentCache\`.`
+    )
+  }
+
   return {
     type: PAGE_TYPES.APP,
     rsc,
