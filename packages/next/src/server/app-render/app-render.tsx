@@ -2529,12 +2529,6 @@ async function renderToStream(
       {
         filterStackFrame,
         onError: serverComponentsErrorHandler,
-        debugChannel: createDebugChannel(
-          sendReactDebugChunk,
-          htmlRequestId,
-          requestId,
-          (stream) => (reactDebugStream = stream)
-        ),
       }
     )
 
@@ -2554,7 +2548,7 @@ async function renderToStream(
           element: (
             <ErrorApp
               reactServerStream={errorServerStream}
-              reactDebugStream={reactDebugStream}
+              reactDebugStream={undefined}
               ServerInsertedHTMLProvider={ServerInsertedHTMLProvider}
               preinitScripts={errorPreinitScripts}
               clientReferenceManifest={clientReferenceManifest}
