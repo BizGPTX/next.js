@@ -784,5 +784,8 @@
   "783": "Expected document.currentScript to be a <script> element. Received %s instead.",
   "784": "Expected document.currentScript src to contain '/_next/'. Received %s instead.",
   "785": "Expected webSocket to be defined in dev mode.",
-  "786": "Expected staticIndicatorState to be defined in dev mode."
+  "786": "Expected staticIndicatorState to be defined in dev mode.",
+  "787": "Did not start HotReloaderWebpack.",
+  "788": "Expected a request ID to be defined for the document via self.__next_r.",
+  "789": "Expected a %s response header."
 }
