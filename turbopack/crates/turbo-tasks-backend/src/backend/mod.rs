@@ -3,6 +3,7 @@ mod operation;
 mod storage;
 
 use std::{
+    any::Any,
     borrow::Cow,
     fmt::{self, Write},
     future::Future,
@@ -23,7 +24,7 @@ use parking_lot::{Condvar, Mutex};
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use smallvec::{SmallVec, smallvec};
 use tokio::time::{Duration, Instant};
-use tracing::field::Empty;
+use tracing::{Instrument, field::Empty, info_span};
 use turbo_tasks::{
     CellId, FxDashMap, KeyValuePair, RawVc, ReadCellOptions, ReadConsistency, SessionId,
     TRANSIENT_TASK_BIT, TaskExecutionReason, TaskId, TraitTypeId, TurboTasksBackendApi,
@@ -34,6 +35,7 @@ use turbo_tasks::{
     },
     event::{Event, EventListener},
     message_queue::TimingEvent,
+    parallel,
     registry::{self, get_value_type_global_name},
     task_statistics::TaskStatisticsApi,
     trace::TraceRawVcs,
@@ -71,6 +73,7 @@ use crate::{
 
 const BACKEND_JOB_INITIAL_SNAPSHOT: BackendJobId = unsafe { BackendJobId::new_unchecked(1) };
 const BACKEND_JOB_FOLLOW_UP_SNAPSHOT: BackendJobId = unsafe { BackendJobId::new_unchecked(2) };
+const BACKEND_JOB_PREFETCH_TASK: BackendJobId = unsafe { BackendJobId::new_unchecked(3) };
 
 const SNAPSHOT_REQUESTED_BIT: usize = 1 << (usize::BITS - 1);
 
@@ -1201,7 +1204,7 @@ impl<B: BackingStorage> TurboTasksBackendInner<B> {
 
         if self.should_persist() {
             // Schedule the snapshot job
-            turbo_tasks.schedule_backend_background_job(BACKEND_JOB_INITIAL_SNAPSHOT);
+            turbo_tasks.schedule_backend_background_job(BACKEND_JOB_INITIAL_SNAPSHOT, None);
         }
     }
 
@@ -2122,6 +2125,7 @@ impl<B: BackingStorage> TurboTasksBackendInner<B> {
     fn run_backend_job<'a>(
         self: &'a Arc<Self>,
         id: BackendJobId,
+        data: Option<Box<dyn Any + Send>>,
         turbo_tasks: &'a dyn TurboTasksBackendApi<TurboTasksBackend<B>>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
@@ -2192,8 +2196,43 @@ impl<B: BackingStorage> TurboTasksBackendInner<B> {
                             Ordering::Relaxed,
                         );
 
-                        turbo_tasks.schedule_backend_background_job(BACKEND_JOB_FOLLOW_UP_SNAPSHOT);
+                        turbo_tasks
+                            .schedule_backend_background_job(BACKEND_JOB_FOLLOW_UP_SNAPSHOT, None);
                         return;
+                    }
+                }
+            } else if id == BACKEND_JOB_PREFETCH_TASK {
+                const DATA_EXPECTATION: &str =
+                    "Expected data to be a FxHashMap<TaskId, bool> for BACKEND_JOB_PREFETCH_TASK";
+                let data = Box::<dyn Any + Send>::downcast::<Vec<(TaskId, bool)>>(
+                    data.expect(DATA_EXPECTATION),
+                )
+                .expect(DATA_EXPECTATION);
+
+                fn prefetch_task(ctx: &mut impl ExecuteContext<'_>, task: TaskId, with_data: bool) {
+                    let category = if with_data {
+                        TaskDataCategory::All
+                    } else {
+                        TaskDataCategory::Meta
+                    };
+                    // Prefetch the task
+                    drop(ctx.task(task, category));
+                }
+
+                if data.len() > 128 {
+                    parallel::for_each_chunk_owned_async(*data, |chunk| {
+                        let mut ctx = self.execute_context(turbo_tasks);
+                        for (task, with_data) in chunk {
+                            prefetch_task(&mut ctx, task, with_data);
+                        }
+                    })
+                    .instrument(info_span!("prefetching (parallel)"))
+                    .await;
+                } else {
+                    let _span = info_span!("prefetching").entered();
+                    let mut ctx = self.execute_context(turbo_tasks);
+                    for (task, with_data) in data.into_iter() {
+                        prefetch_task(&mut ctx, task, with_data);
                     }
                 }
             }
@@ -2887,9 +2926,10 @@ impl<B: BackingStorage> Backend for TurboTasksBackend<B> {
     fn run_backend_job<'a>(
         &'a self,
         id: BackendJobId,
+        data: Option<Box<dyn Any + Send>>,
         turbo_tasks: &'a dyn TurboTasksBackendApi<Self>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        self.0.run_backend_job(id, turbo_tasks)
+        self.0.run_backend_job(id, data, turbo_tasks)
     }
 
     fn try_read_task_output(

@@ -13,13 +13,15 @@ use std::{
     mem::transmute,
 };
 
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use turbo_tasks::{KeyValuePair, SessionId, TaskId, TurboTasksBackendApi};
 
 use crate::{
     backend::{
-        OperationGuard, TaskDataCategory, TransientTask, TurboTasksBackend, TurboTasksBackendInner,
-        storage::{SpecificTaskDataCategory, StorageWriteGuard},
+        BACKEND_JOB_PREFETCH_TASK, OperationGuard, TaskDataCategory, TransientTask,
+        TurboTasksBackend, TurboTasksBackendInner,
+        storage::{SpecificTaskDataCategory, StorageWriteGuard, iter_many},
     },
     backing_storage::BackingStorage,
     data::{
@@ -255,6 +257,12 @@ where
     }
 
     fn schedule_task(&self, mut task: impl TaskGuard + '_) {
+        if let Some(tasks_to_prefetch) = task.prefetch() {
+            self.turbo_tasks.schedule_backend_foreground_job(
+                BACKEND_JOB_PREFETCH_TASK,
+                Some(Box::new(tasks_to_prefetch)),
+            );
+        }
         self.turbo_tasks.schedule(task.id());
     }
 
@@ -321,6 +329,7 @@ pub trait TaskGuard: Debug {
     where
         F: for<'a> FnMut(CachedDataItemKey, CachedDataItemValueRef<'a>) -> bool + 'l;
     fn invalidate_serialization(&mut self);
+    fn prefetch(&mut self) -> Option<Vec<(TaskId, bool)>>;
     fn is_immutable(&self) -> bool;
 }
 
@@ -508,6 +517,20 @@ impl<B: BackingStorage> TaskGuard for TaskGuardImpl<'_, B> {
             self.task.track_modification(SpecificTaskDataCategory::Data);
             self.task.track_modification(SpecificTaskDataCategory::Meta);
         }
+    }
+
+    fn prefetch(&mut self) -> Option<Vec<(TaskId, bool)>> {
+        if !self.task.state().prefetched() {
+            self.task.state_mut().set_prefetched(true);
+            let map = iter_many!(self, OutputDependency { target } => (target, false))
+                .chain(iter_many!(self, CellDependency { target } => (target.task, true)))
+                .chain(iter_many!(self, CollectiblesDependency { target } => (target.task, true)))
+                .collect::<FxHashMap<_, _>>();
+            if map.len() > 16 {
+                return Some(map.into_iter().collect());
+            }
+        }
+        None
     }
 
     fn is_immutable(&self) -> bool {
