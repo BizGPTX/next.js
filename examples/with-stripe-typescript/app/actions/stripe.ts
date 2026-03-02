@@ -67,3 +67,39 @@ export async function createPaymentIntent(
 
   return { client_secret: paymentIntent.client_secret as string };
 }
+
+export async function createNdisReportCheckoutSession(
+  data: FormData,
+): Promise<{ url: string | null }> {
+  const origin: string = headers().get("origin") as string;
+
+  const reportText = String(data.get("reportText") || "");
+
+  const checkoutSession: Stripe.Checkout.Session =
+    await stripe.checkout.sessions.create({
+      mode: "payment",
+      submit_type: "pay",
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: CURRENCY,
+            product_data: {
+              name: "NDIS case note report",
+              description: "One generated support-worker case note report",
+            },
+            unit_amount: formatAmountForStripe(2, CURRENCY),
+          },
+        },
+      ],
+      success_url: `${origin}/ndis-case-notes/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/ndis-case-notes`,
+      metadata: {
+        reportPreview: reportText.slice(0, 500),
+      },
+    });
+
+  return {
+    url: checkoutSession.url,
+  };
+}

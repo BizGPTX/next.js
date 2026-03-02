@@ -140,7 +140,8 @@ li {
 .FormRow,
 fieldset,
 input[type="number"],
-input[type="text"] {
+input[type="text"],
+textarea {
   border-radius: var(--radius);
   padding: 5px 12px;
   width: 100%;
@@ -148,6 +149,24 @@ input[type="text"] {
   appearance: none;
   font-size: 16px;
   margin-top: 10px;
+}
+
+.ndis-wrapper {
+  margin-top: 24px;
+}
+
+.ndis-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.ndis-field span {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--h2-color);
+  margin-top: 8px;
 }
 
 input[type="range"] {
