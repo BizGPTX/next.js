@@ -1,0 +1,448 @@
+:root {
+  --bg: #090414;
+  --bg-soft: rgba(19, 10, 37, 0.82);
+  --panel: rgba(17, 12, 33, 0.74);
+  --panel-strong: rgba(29, 18, 51, 0.92);
+  --border: rgba(192, 161, 255, 0.24);
+  --text: #f8f2ff;
+  --muted: #cab9ef;
+  --accent: #c084fc;
+  --accent-strong: #7c3aed;
+  --accent-soft: rgba(192, 132, 252, 0.18);
+  --gold: #f8d48a;
+  --shadow: 0 24px 80px rgba(4, 1, 10, 0.52);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-body), sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(124, 58, 237, 0.35), transparent 28%),
+    radial-gradient(
+      circle at 20% 20%,
+      rgba(248, 212, 138, 0.14),
+      transparent 22%
+    ),
+    linear-gradient(180deg, #10071f 0%, #07030e 52%, #04020a 100%);
+  color: var(--text);
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.page-shell {
+  position: relative;
+  overflow: hidden;
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 56px 0 80px;
+}
+
+.page-shell::before,
+.page-shell::after {
+  content: "";
+  position: absolute;
+  inset: auto;
+  border-radius: 999px;
+  filter: blur(70px);
+  pointer-events: none;
+}
+
+.page-shell::before {
+  top: 60px;
+  right: -80px;
+  width: 260px;
+  height: 260px;
+  background: rgba(192, 132, 252, 0.18);
+}
+
+.page-shell::after {
+  left: -120px;
+  bottom: 120px;
+  width: 300px;
+  height: 300px;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.hero-panel,
+.spread-panel,
+.reading-panel {
+  position: relative;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(22, 15, 40, 0.88),
+    rgba(11, 8, 21, 0.78)
+  );
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.hero-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
+  gap: 24px;
+  padding: 32px;
+  border-radius: 32px;
+}
+
+.hero-copy h1,
+.spread-panel h2,
+.reading-panel h2,
+.reading-section h3,
+.daily-card-panel h2,
+.tarot-card h3 {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  letter-spacing: 0.01em;
+}
+
+.hero-copy h1 {
+  font-size: clamp(3rem, 6vw, 5.6rem);
+  line-height: 0.92;
+  text-wrap: balance;
+}
+
+.section-label {
+  margin: 0 0 10px;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.76rem;
+}
+
+.hero-subtitle {
+  margin: 16px 0 0;
+  font-size: clamp(1.2rem, 2vw, 1.5rem);
+  color: var(--muted);
+}
+
+.hero-description,
+.spread-hint,
+.daily-card-panel p,
+.reading-section p,
+.overall-reading p,
+.empty-state p,
+.tarot-card__meta,
+.tarot-card__meaning {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.hero-description {
+  max-width: 58ch;
+  margin: 16px 0 0;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  margin-top: 28px;
+}
+
+.primary-button,
+.ghost-button {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease,
+    opacity 180ms ease;
+}
+
+.primary-button:hover,
+.ghost-button:hover {
+  transform: translateY(-1px);
+}
+
+.primary-button {
+  padding: 14px 22px;
+  color: #140a24;
+  font-weight: 700;
+  background: linear-gradient(135deg, #f9dd95, #d9a1ff 55%, #ad7dff);
+  box-shadow: 0 12px 32px rgba(186, 135, 255, 0.34);
+}
+
+.ghost-button {
+  padding: 12px 18px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+.toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.daily-card-panel {
+  align-self: stretch;
+  padding: 24px;
+  border-radius: 28px;
+  background: linear-gradient(
+    180deg,
+    rgba(34, 20, 63, 0.88),
+    rgba(14, 10, 28, 0.9)
+  );
+  border: 1px solid rgba(248, 212, 138, 0.2);
+}
+
+.daily-meta {
+  margin: 10px 0 14px;
+  color: #f5dfb0;
+}
+
+.spread-panel,
+.reading-panel {
+  margin-top: 24px;
+  border-radius: 28px;
+  padding: 28px;
+}
+
+.spread-panel__header,
+.reading-panel__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 22px;
+}
+
+.spread-hint {
+  max-width: 28ch;
+  margin: 0;
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  grid-column: 1 / -1;
+  border-radius: 24px;
+  border: 1px dashed rgba(192, 161, 255, 0.28);
+  background: rgba(255, 255, 255, 0.02);
+  text-align: center;
+  padding: 24px;
+}
+
+.tarot-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 228px;
+  padding: 22px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(35, 23, 59, 0.94), rgba(13, 9, 24, 0.94)),
+    linear-gradient(135deg, rgba(192, 132, 252, 0.2), transparent 50%);
+  transform: translateY(18px) scale(0.98);
+  opacity: 0;
+}
+
+.tarot-card.revealed {
+  animation: reveal-card 480ms cubic-bezier(0.2, 0.9, 0.2, 1) forwards;
+}
+
+.tarot-card__glow {
+  position: absolute;
+  inset: -30% auto auto -10%;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(248, 212, 138, 0.24),
+    transparent 66%
+  );
+  opacity: 0.75;
+}
+
+.tarot-card__eyebrow {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--gold);
+  margin-bottom: 18px;
+}
+
+.tarot-card h3 {
+  position: relative;
+  z-index: 1;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.tarot-card__meta,
+.tarot-card__meaning {
+  position: relative;
+  z-index: 1;
+}
+
+.tarot-card__meta {
+  margin: 12px 0 10px;
+  color: #f6deb7;
+}
+
+.tarot-card__meaning {
+  margin: 0;
+}
+
+.reading-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.reading-section,
+.overall-reading {
+  padding: 22px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.overall-reading {
+  margin-top: 16px;
+  background: linear-gradient(
+    180deg,
+    rgba(192, 132, 252, 0.12),
+    rgba(255, 255, 255, 0.04)
+  );
+}
+
+.sparkle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 235, 200, 0.88);
+  box-shadow: 0 0 16px rgba(255, 255, 255, 0.7);
+  animation: sparkle 4.8s ease-in-out infinite;
+}
+
+.sparkle-one {
+  top: 110px;
+  right: 20%;
+}
+
+.sparkle-two {
+  top: 420px;
+  left: 6%;
+  animation-delay: 1.2s;
+}
+
+.sparkle-three {
+  bottom: 180px;
+  right: 9%;
+  animation-delay: 2.4s;
+}
+
+@keyframes reveal-card {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sparkle {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.7) translateY(0);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.2) translateY(-10px);
+  }
+}
+
+@media (max-width: 920px) {
+  .hero-panel,
+  .cards-grid,
+  .reading-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .spread-panel__header,
+  .reading-panel__header {
+    flex-direction: column;
+  }
+
+  .spread-hint {
+    max-width: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .page-shell {
+    width: min(100% - 20px, 1180px);
+    padding: 24px 0 48px;
+  }
+
+  .hero-panel,
+  .spread-panel,
+  .reading-panel,
+  .daily-card-panel {
+    padding: 20px;
+    border-radius: 24px;
+  }
+
+  .hero-copy h1 {
+    font-size: 3rem;
+  }
+
+  .tarot-card h3 {
+    font-size: 1.7rem;
+  }
+
+  .hero-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
