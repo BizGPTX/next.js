@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: bizgptx
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks: [core]
+
+  redis:
+    image: redis:7-alpine
+    networks: [core]
+
+  api:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm --filter @bizgptx/api dev"
+    volumes:
+      - ../../:/workspace
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/bizgptx
+      REDIS_URL: redis://redis:6379
+      INTERNAL_SIGNING_KEY: dev-internal-key
+    depends_on: [postgres, redis]
+    networks: [core]
+
+  provisioner:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm --filter @bizgptx/provisioner dev"
+    volumes:
+      - ../../:/workspace
+    networks: [core]
+
+  dashboard:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm --filter @bizgptx/dashboard dev"
+    volumes:
+      - ../../:/workspace
+    environment:
+      API_BASE_URL: http://api:4000
+    depends_on: [api]
+    networks: [core]
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile
+    depends_on: [dashboard, api]
+    networks: [core]
+
+  sample-tenant-openclaw:
+    image: ghcr.io/bizgptx/openclaw:latest
+    environment:
+      TENANT_ID: sample-tenant
+    networks:
+      - tenant_sample
+
+networks:
+  core:
+  tenant_sample:
+    internal: true
+
+volumes:
+  pg_data:

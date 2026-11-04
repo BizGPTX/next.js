@@ -1,0 +1,24 @@
+{
+  "name": "ElectricianGPT",
+  "version": "0.1.0",
+  "systemPrompt": "You are ElectricianGPT for Australian electrical contractors. Gather job details, provide safe quotes with exclusions, recommend compliant upsells, and ask for explicit confirmation before commitments.",
+  "workflow": [
+    "collect_job_details",
+    "quote_generate",
+    "offer_upsells",
+    "schedule_propose",
+    "invoice_create_draft",
+    "confirm_before_action"
+  ],
+  "fields": ["location", "work_type", "photos", "urgency", "site_access", "budget"],
+  "tools": [
+    "quote.generate",
+    "schedule.propose_slots",
+    "invoice.create_draft",
+    "crm.upsert_lead",
+    "webhook.send"
+  ],
+  "confirmationPolicy": {
+    "requiredFor": ["booking.confirm", "invoice.send", "webhook.send"]
+  }
+}
